@@ -51,10 +51,13 @@ fun Project.runGit(vararg arguments: String): String? = runCatching {
         }
 }.getOrNull()
 
-val signingStoreFile = file("../keystore.jks")
-val signingStorePassword = System.getenv("SIGNING_STORE_PASSWORD")
-val signingKeyAlias = System.getenv("SIGNING_KEY_ALIAS")
-val signingKeyPassword = System.getenv("SIGNING_KEY_PASSWORD")
+val signingStoreFile = file("../keystore-air.p12")
+// mg-3backends: the fork signs with its own committed PKCS12 keystore so
+// releases stay installable (stable signature across runs) without access to
+// the upstream CI secrets. The env overrides remain for fork-side rotation.
+val signingStorePassword = System.getenv("SIGNING_STORE_PASSWORD") ?: "mgair-air-3backends"
+val signingKeyAlias = System.getenv("SIGNING_KEY_ALIAS") ?: "mgair"
+val signingKeyPassword = System.getenv("SIGNING_KEY_PASSWORD") ?: "mgair-air-3backends"
 val releaseSigningReady = signingStoreFile.exists()
     && !signingStorePassword.isNullOrEmpty()
     && !signingKeyAlias.isNullOrEmpty()
@@ -188,6 +191,7 @@ android {
         signingConfigs {
             create("release") {
                 storeFile = signingStoreFile
+                storeType = "PKCS12"
                 storePassword = signingStorePassword
                 keyAlias = signingKeyAlias
                 keyPassword = signingKeyPassword
