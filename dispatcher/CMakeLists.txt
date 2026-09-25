@@ -34,7 +34,12 @@ add_library(mobileglues SHARED
     ${MG_FWD_C}
 )
 
-target_include_directories(mobileglues PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+# The generated forwarders #include the same Khronos headers they were parsed
+# from, so the MobileGL include dir must be on the include path too.
+target_include_directories(mobileglues PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${MOBILEGL_INCLUDE_DIR}
+)
 target_compile_options(mobileglues PRIVATE -O2 -fvisibility=hidden -Wall)
 # Only eglGetProcAddress + the generated forwarders carry default visibility;
 # everything else stays hidden so the launcher's dlsym surface is exactly the
