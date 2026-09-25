@@ -78,16 +78,27 @@ val pluginRendererConfig = buildJsonValue {
     renderer(
         displayName = "MobileGL",
         rendererId = "opengles3",
-        rendererGLPath = nativePath("libMobileGL.so"),
-        rendererEGLPath = nativePath("libMobileGL.so"),
-        dlopenLibPaths = emptyList(),
+        rendererGLPath = nativePath("libmobileglues.so"),
+        rendererEGLPath = nativePath("libmobileglues.so"),
+        // mg-3backends: the launcher must also be able to extract/dlopen the
+        // backend cores the dispatcher routes to.
+        dlopenLibPaths = listOf("libMobileGL.so", "libmg_gles.so"),
         env = buildEnvs {
             normal("LIBGL_ES", "3")
             selectable(
                 key = "MOBILEGL_BACKEND_TYPE",
                 title = RendererConfig.MetaString("mobilegl_backend_type_title"),
-                items = RendererConfig.EnvItems("DirectGLES", listOf("DirectVulkan")),
+                // mg-3backends (Air 6.0 definition): one "mg" entry, three
+                // backends selectable in the launcher settings. Default is
+                // Air 6.0's: Vulkan direct. DirectGLES resolves inside the
+                // MobileGL core; "MobileGlues" routes to the vendored
+                // libmg_gles.so (GL -> OpenGL ES, FSR1-capable).
+                items = RendererConfig.EnvItems("DirectVulkan", listOf("MobileGlues", "DirectGLES")),
             )
+            // mg-3backends: FSR1 quality tier for the backends that ship it
+            // (GLES core native EASU+RCAS; others land in follow-up builds).
+            // 0=off 1=UltraQuality 2=Quality 3=Balanced 4=Performance
+            customizable("MOBILEGL_FSR1", "0", RendererConfig.MetaString("mobilegl_fsr1_title"))
             toggleable("MOBILEGL_DISABLE_TIMERQUERY", "1", false, RendererConfig.MetaString("mobilegl_disable_timerquery_title"))
             toggleable("MOBILEGL_MAGMA_DISABLE_SUBGROUP", "1", false, RendererConfig.MetaString("mobilegl_disable_subgroup_title"))
             toggleable("MOBILEGL_MAGMA_R11G11B10F_FALLBACK", "1", false, RendererConfig.MetaString("mobilegl_magma_r11g11b10f_fallback_title"))
@@ -119,19 +130,25 @@ android {
         manifestPlaceholders.putAll(legacyManifest {
             displayName = "MobileGL"
             rendererName = "MobileGL"
-            rendererLib = "libMobileGL.so"
-            eglLib = "/libMobileGL.so"
+            // mg-3backends: legacy launchers load the unified dispatcher; it
+            // routes to libMobileGL.so / libmg_gles.so by backend selection.
+            rendererLib = "libmobileglues.so"
+            eglLib = "/libmobileglues.so"
             minMCVer = ""
             maxMCVer = ""
             boatEnv {
                 put("LIBGL_ES", "3")
                 put("POJAV_RENDERER", "opengles3")
-                put("MOBILEGL_BACKEND_TYPE", "DirectGLES")
+                // Air 6.0 default: Vulkan direct
+                put("MOBILEGL_BACKEND_TYPE", "DirectVulkan")
             }
             pojavEnv {
                 put("LIBGL_ES", "3")
                 put("POJAV_RENDERER", "opengles3")
-                put("MOBILEGL_BACKEND_TYPE", "DirectGLES")
+                put("POJAVEXEC_EGL", "libmobileglues.so")
+                put("LIBGL_EGL", "libmobileglues.so")
+                // Air 6.0 default: Vulkan direct
+                put("MOBILEGL_BACKEND_TYPE", "DirectVulkan")
             }
         })
         manifestPlaceholders["appLabel"] = "MobileGL"
@@ -221,4 +238,6 @@ androidComponents {
 
 dependencies {
     implementation(project(":MobileGL"))
+    // mg-3backends: vendored MobileGlues core (libmg_gles.so)
+    implementation(project(":mg-air"))
 }

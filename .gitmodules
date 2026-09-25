@@ -34,3 +34,7 @@
 [submodule "include/ska"]
 	path = include/ska
 	url = https://github.com/MobileGL-Dev/flat_hash_map.git
+[submodule "MobileGlues-cpp"]
+	path = MobileGlues-cpp
+	url = https://github.com/Gsjsjzhznsz/MobileGlues.git
+	branch = mg-3backends

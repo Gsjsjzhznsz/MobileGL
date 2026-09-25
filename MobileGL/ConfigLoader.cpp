@@ -211,7 +211,11 @@ namespace MobileGL::MG_ConfigLoader {
 
     inline void InitBackendType() {
         String backendTypeStr;
-        QueryEnvVariable("MOBILEGL_BACKEND_TYPE", backendTypeStr, "DirectGLES");
+        // mg-3backends (Air 6.0): the merged family defaults to the Vulkan
+        // direct backend ("Vulkan direct connection"). The dispatcher shares
+        // this default so the entry lib and the core can never disagree when
+        // the launcher leaves the variable unset.
+        QueryEnvVariable("MOBILEGL_BACKEND_TYPE", backendTypeStr, "DirectVulkan");
 #define ENTRY(backendType)                                                                                             \
     if (backendTypeStr == #backendType) {                                                                              \
         MG_Config::ActiveBackendType = BackendType::backendType;                                                       \

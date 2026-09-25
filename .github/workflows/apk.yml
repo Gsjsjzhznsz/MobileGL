@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - dev
+      - mg-3backends
       - Feat/Backend-Direct-GLES
       - Feat/Backend-Direct-Vulkan
   workflow_dispatch:

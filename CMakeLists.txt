@@ -699,3 +699,17 @@ endif()
 if (ANDROID AND MOBILEGL_BUILD_INTEGRATION_TEST)
     add_subdirectory(MobileGL/MG_IntegrationTest)
 endif()
+
+# ---------------------------------------------------------------------------
+# mg-3backends: unified renderer entry (libmobileglues.so)
+#
+# Air 6.0 merge: the MobileGL family exposes ONE renderer entry whose backend
+# is selected in the launcher settings ("渲染后端"): DirectVulkan (Vulkan 直连,
+# default) / DirectGLES (OpenGL 4.0) / MobileGlues (GLES). The dispatcher
+# dlopens libMobileGL.so for the first two (backend resolved inside the core)
+# and the vendored libmg_gles.so (MobileGlues, GL->ES + FSR1) for the last.
+# Cores stay byte-identical to upstream builds; see dispatcher/dispatcher.c.
+# ---------------------------------------------------------------------------
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+set(MOBILEGL_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
+add_subdirectory(dispatcher)

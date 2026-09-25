@@ -10,5 +10,6 @@
     <string name="mobilegl_coherent_as_flush_title">Treat explicit-flush persistent maps as coherent</string>
     <string name="mobilegl_use_angle_title">Use ANGLE GLES libraries</string>
     <string name="mobilegl_relaxed_semantics_title">Relaxed GL semantics (legacy app leniencies)</string>
-    <string name="mobilegl_default_backend" translatable="false">DirectGLES</string>
+    <string name="mobilegl_default_backend" translatable="false">DirectVulkan</string>
+    <string name="mobilegl_fsr1_title">FSR 1.0 super resolution (0=off, 1=ultra, 2=quality, 3=balanced, 4=performance)</string>
 </resources>

@@ -1,0 +1,38 @@
+// MobileGL - mg-air/build.gradle
+// mg-3backends: Android library module producing libmg_gles.so from the
+// vendored MobileGlues-cpp tree. The plugin app bundles its output alongside
+// libMobileGL.so and the dispatcher (libmobileglues.so).
+//
+// abiFilters / cmake compiler launcher are injected for every
+// com.android.library subproject by the android-plugin root build script.
+
+plugins {
+    id 'com.android.library'
+}
+
+android {
+    namespace 'top.mobilegl.mgair'
+    compileSdk 34
+    ndkVersion '27.3.13750724'
+
+    defaultConfig {
+        minSdk 26
+        externalNativeBuild {
+            cmake {
+                arguments "-DCMAKE_BUILD_TYPE=Release"
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path 'CMakeLists.txt'
+            version '3.22.1'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}

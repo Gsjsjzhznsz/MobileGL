@@ -34,15 +34,20 @@ require 'top.mobilegl.plugin' "$plugin_manifest" 'plugin package name'
 require 'MobileGL' "$plugin_manifest" 'plugin label'
 require 'fclPlugin' "$plugin_manifest" 'legacy plugin marker'
 require 'fclPlugin_V2' "$plugin_manifest" 'V2 plugin marker'
-require 'LIBGL_ES=3:POJAV_RENDERER=opengles3:MOBILEGL_BACKEND_TYPE=DirectGLES' "$plugin_manifest" 'V1 DirectGLES fallback'
+# mg-3backends: legacy fallback env now defaults to Air 6.0's Vulkan direct.
+require 'LIBGL_ES=3:POJAV_RENDERER=opengles3:MOBILEGL_BACKEND_TYPE=DirectVulkan' "$plugin_manifest" 'V1 DirectVulkan fallback'
 require 'string/config' "$plugin_resources" 'V2 renderer configuration resource'
 require '{displayName:MobileGL,rendererId:opengles3' "$plugin_resource_text" 'V2 MobileGL entry and renderer ID'
-require 'rendererGLPath:**|libMobileGL.so' "$plugin_resource_text" 'V2 GL library path'
-require 'rendererEGLPath:**|libMobileGL.so' "$plugin_resource_text" 'V2 EGL library path'
+# mg-3backends: the renderer entry is the unified dispatcher.
+require 'rendererGLPath:**|libmobileglues.so' "$plugin_resource_text" 'V2 GL library path'
+require 'rendererEGLPath:**|libmobileglues.so' "$plugin_resource_text" 'V2 EGL library path'
 require 'key:LIBGL_ES,value:3' "$plugin_resource_text" 'V2 fixed LIBGL_ES variable'
 require 'key:MOBILEGL_BACKEND_TYPE' "$plugin_resource_text" 'V2 backend variable'
-require 'defaultValue:DirectGLES' "$plugin_resource_text" 'V2 DirectGLES default'
-require 'DirectVulkan' "$plugin_resource_text" 'V2 DirectVulkan option'
+# mg-3backends (Air 6.0): one mg entry, three backends, Vulkan direct default.
+require 'defaultValue:DirectVulkan' "$plugin_resource_text" 'V2 DirectVulkan default'
+require 'MobileGlues' "$plugin_resource_text" 'V2 MobileGlues (GLES) option'
+require 'DirectGLES' "$plugin_resource_text" 'V2 DirectGLES (OpenGL 4.0) option'
+require 'key:MOBILEGL_FSR1' "$plugin_resource_text" 'V2 FSR1 quality setting'
 require 'key:MOBILEGL_DISABLE_TIMERQUERY' "$plugin_resource_text" 'V2 timer-query toggle'
 require 'key:MOBILEGL_MAGMA_DISABLE_SUBGROUP' "$plugin_resource_text" 'V2 Vulkan subgroup toggle'
 require 'key:MOBILEGL_MAGMA_R11G11B10F_FALLBACK' "$plugin_resource_text" 'V2 Magma format fallback toggle'
@@ -56,10 +61,13 @@ if [[ $(grep -Fc 'fclPlugin_V2' <<<"$plugin_manifest") -ne 1 ]]; then
   exit 1
 fi
 
-if ! grep -Eq '^lib/[^/]+/libMobileGL\.so$' <<<"$plugin_contents"; then
-  echo '::error::Plugin APK does not contain libMobileGL.so' >&2
-  exit 1
-fi
+# mg-3backends: all three native pieces must ship in the plugin APK.
+for so in libmobileglues.so libMobileGL.so libmg_gles.so; do
+  if ! grep -Eq "^lib/[^/]+/${so//./\\.}$" <<<"$plugin_contents"; then
+    echo "::error::Plugin APK does not contain ${so}" >&2
+    exit 1
+  fi
+done
 
 require 'top.mobilegl.plugin.trace' "$trace_manifest" 'trace package name'
 require 'top.mobilegl.plugin.TRACE_REPLAY' "$trace_manifest" 'trace replay action'
