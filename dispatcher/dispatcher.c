@@ -14,6 +14,11 @@
  *                      selected inside the core by the same env value)
  *   - libmg_gles.so  : vendored MobileGlues core (GL -> OpenGL ES, FSR1)
  *
+ * Backend selection: MOBILEGL_BACKEND_TYPE env first; when unset, the
+ * "backendType" string in the MobileGlues config.json (MG_DIR_PATH or
+ * /sdcard/MG) — the key the MobileGlues settings UI's Air 6.0-style picker
+ * writes; default DirectVulkan ("Vulkan 直连").
+ *
  * Every GL/EGL symbol the launcher resolves from the dispatcher is a lazy
  * forwarder generated from the Khronos headers (gen_forwarders.py), so both
  * cores stay byte-identical to their upstream builds — no symbol surgery,
@@ -31,6 +36,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <stddef.h>
 
 #ifdef __ANDROID__
 #include <android/log.h>
@@ -85,6 +91,56 @@ static void *mg_try_dlopen(const char *lib) {
     return NULL;
 }
 
+/* mg-3backends (Air 6.0 switcher): the MobileGlues settings UI writes the
+ * backend choice into the very config.json the cores already read. Env wins
+ * (launcher-side selectable env), config.json is the fallback so the picker
+ * in our own UI also drives launchers that never heard of the env.
+ * Path resolution mirrors MobileGlues-cpp/config/config.cpp check_path():
+ * MG_DIR_PATH env override, else /sdcard/MG. Returns a pointer into a static
+ * buffer; mg_dispatch_init runs at most once, so that is safe. */
+static const char *mg_backend_from_config(void) {
+    static char val[32];
+    const char *dir_env = getenv("MG_DIR_PATH");
+    char path[600], buf[16384];
+    FILE *f;
+    size_t n;
+    const char *key, *colon, *q1, *q2;
+
+    snprintf(path, sizeof(path), "%s/config.json",
+             (dir_env && *dir_env) ? dir_env : "/sdcard/MG");
+    f = fopen(path, "r");
+    if (!f) {
+        return NULL;
+    }
+    n = fread(buf, 1, sizeof(buf) - 1, f);
+    fclose(f);
+    buf[n] = '\0';
+
+    /* Tolerant scan for  "backendType" : "DirectVulkan" — no JSON parser in
+     * the dispatcher, and the cores' config parser must not be duplicated
+     * here either; the plugin UI is the only writer of this key. */
+    key = strstr(buf, "\"backendType\"");
+    if (!key) {
+        return NULL;
+    }
+    colon = strchr(key + sizeof("\"backendType\"") - 1, ':');
+    if (!colon) {
+        return NULL;
+    }
+    q1 = strchr(colon + 1, '"');
+    if (!q1) {
+        return NULL;
+    }
+    q2 = strchr(q1 + 1, '"');
+    if (!q2 || q2 - q1 - 1 <= 0 || q2 - q1 - 1 >= (ptrdiff_t)sizeof(val)) {
+        return NULL;
+    }
+    memcpy(val, q1 + 1, q2 - q1 - 1);
+    val[q2 - q1 - 1] = '\0';
+    MG_LOGI("backend from %s: \"%s\"", path, val);
+    return val;
+}
+
 void mg_dispatch_init(void) {
     const char *be, *force;
     const char *lib;
@@ -94,6 +150,9 @@ void mg_dispatch_init(void) {
     }
 
     be = getenv("MOBILEGL_BACKEND_TYPE");
+    if (!be || !*be) {
+        be = mg_backend_from_config();
+    }
     if (!be || !*be) {
         be = "DirectVulkan"; /* Air 6.0 default: Vulkan direct */
     }
