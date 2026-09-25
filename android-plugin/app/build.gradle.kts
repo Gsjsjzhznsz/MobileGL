@@ -54,10 +54,14 @@ fun Project.runGit(vararg arguments: String): String? = runCatching {
 val signingStoreFile = file("../keystore-air.p12")
 // mg-3backends: the fork signs with its own committed PKCS12 keystore so
 // releases stay installable (stable signature across runs) without access to
-// the upstream CI secrets. The env overrides remain for fork-side rotation.
-val signingStorePassword = System.getenv("SIGNING_STORE_PASSWORD") ?: "mgair-air-3backends"
-val signingKeyAlias = System.getenv("SIGNING_KEY_ALIAS") ?: "mgair"
-val signingKeyPassword = System.getenv("SIGNING_KEY_PASSWORD") ?: "mgair-air-3backends"
+// the upstream CI secrets. CI passes the SIGNING_* secrets as EMPTY strings
+// on forks, so blank counts as absent here and the committed-keystore
+// fallback kicks in. Env overrides remain for fork-side rotation.
+fun signingEnvOr(name: String, fallback: String): String =
+    System.getenv(name)?.takeIf { it.isNotBlank() } ?: fallback
+val signingStorePassword = signingEnvOr("SIGNING_STORE_PASSWORD", "mgair-air-3backends")
+val signingKeyAlias = signingEnvOr("SIGNING_KEY_ALIAS", "mgair")
+val signingKeyPassword = signingEnvOr("SIGNING_KEY_PASSWORD", "mgair-air-3backends")
 val releaseSigningReady = signingStoreFile.exists()
     && !signingStorePassword.isNullOrEmpty()
     && !signingKeyAlias.isNullOrEmpty()
