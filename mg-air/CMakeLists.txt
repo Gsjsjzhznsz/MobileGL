@@ -13,5 +13,8 @@ cmake_minimum_required(VERSION 3.22.1)
 # canonical `mobileglues` target (OUTPUT_NAME mg_gles -> libmg_gles.so).
 project(mobileglues C CXX)
 
-set(MG_GLES_SRC ${CMAKE_CURRENT_SOURCE_DIR}/../MobileGlues-cpp)
+# The submodule mounts the MobileGlues REPO ROOT (which carries its own CI,
+# gradle wrapper and .gitmodules); the C++ tree lives one level deeper, in the
+# repo's own MobileGlues-cpp/ directory.
+set(MG_GLES_SRC ${CMAKE_CURRENT_SOURCE_DIR}/../MobileGlues-cpp/MobileGlues-cpp)
 add_subdirectory(${MG_GLES_SRC} mg_gles_build)

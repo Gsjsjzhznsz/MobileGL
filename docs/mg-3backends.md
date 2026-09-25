@@ -55,7 +55,7 @@ libmobileglues.so  ←── 统一入口（dispatcher，本分支新增）
 | 模块 | 产物 | 说明 |
 |---|---|---|
 | `:MobileGL`（仓库根） | `libMobileGL.so` + `libmobileglues.so` | 核心 + dispatcher 同一 CMake 调用 |
-| `:mg-air`（`mg-air/`） | `libmg_gles.so` | 独立 CMake 调用构建 `MobileGlues-cpp`（submodule → Gsjsjzhznsz/MobileGlues 分支 mg-3backends），与 MobileGL 的 glslang/SPIRV-Cross 副本隔离，避免 target 冲突 |
+| `:mg-air`（`mg-air/`） | `libmg_gles.so` | 独立 CMake 调用构建 submodule 内的 `MobileGlues-cpp/` 子目录（submodule 挂载 MobileGlues 仓库根 → Gsjsjzhznsz/MobileGlues 分支 mg-3backends），与 MobileGL 的 glslang/SPIRV-Cross 副本隔离，避免 target 冲突 |
 
 ## FSR 路线图
 
