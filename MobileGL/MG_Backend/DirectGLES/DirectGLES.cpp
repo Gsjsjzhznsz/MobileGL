@@ -6004,6 +6004,26 @@ namespace MobileGL::MG_Backend::DirectGLES {
         DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__](auto err) {
             MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
         });
+        // mg-3backends FSR1: the application addresses both blit endpoints in
+        // surface units, but the logical default endpoints resolve to the
+        // render-sized redirect. GLES does not clip an overrunning blit -- the
+        // whole call fails with GL_INVALID_OPERATION and the frame never lands,
+        // which read as "FSR1 on, screen stuck on stale frames". Scale each
+        // endpoint the application addressed as the default framebuffer, exactly
+        // like the scissor rewrite.
+        {
+            const auto& fsrReadFbo =
+                MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Read).GetBoundObject();
+            const auto& fsrDrawFbo =
+                MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
+            const auto& defaultFBO = MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO;
+            const Bool fsrReadDefault = !fsrReadFbo || fsrReadFbo == defaultFBO;
+            const Bool fsrDrawDefault = !fsrDrawFbo || fsrDrawFbo == defaultFBO;
+            if (fsrReadDefault || fsrDrawDefault) {
+                FSR1Impl::MapBlitRects(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, fsrReadDefault,
+                                       fsrDrawDefault);
+            }
+        }
         MGLOG_D("ES %s(%d, %d, %d, %d, %d, %d, %d, %d, 0x%x, %s)", __func__, srcX0, srcY0, srcX1, srcY1, dstX0, dstY0,
                 dstX1, dstY1, mask, MG_Util::ConvertGLEnumToString(filter).c_str());
         // A no-op on every driver that honours a non-zero destination array layer, which is all
@@ -6033,6 +6053,20 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
         SyncAndBindFramebufferObject(readFramebuffer, FramebufferTarget::Read, true);
         SyncAndBindFramebufferObject(drawFramebuffer, FramebufferTarget::Draw, true);
+
+        // mg-3backends FSR1: same endpoint remap as the non-DSA BlitFramebuffer
+        // above -- a named blit that addresses the default framebuffer object
+        // targets the render-sized redirect through the bind shadow, so its
+        // rectangles are surface units against a render-sized attachment.
+        {
+            const auto& defaultFBO = MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO;
+            const Bool fsrReadDefault = !readFramebuffer || readFramebuffer == defaultFBO;
+            const Bool fsrDrawDefault = !drawFramebuffer || drawFramebuffer == defaultFBO;
+            if (fsrReadDefault || fsrDrawDefault) {
+                FSR1Impl::MapBlitRects(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, fsrReadDefault,
+                                       fsrDrawDefault);
+            }
+        }
 
         MGLOG_D("ES %s(%d, %d, %d, %d, %d, %d, %d, %d, 0x%x, %s)", __func__, srcX0, srcY0, srcX1, srcY1,
                 dstX0, dstY0, dstX1, dstY1, mask, MG_Util::ConvertGLEnumToString(filter).c_str());

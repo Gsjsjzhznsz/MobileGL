@@ -41,6 +41,19 @@ namespace MobileGL::MG_Backend::DirectGLES::FSR1Impl {
     void MapViewport(Int& x, Int& y, Int& w, Int& h, Bool onDefaultDraw);
     void MapScissor(Int& x, Int& y, Int& w, Int& h, Bool onDefaultDraw);
 
+    // glBlitFramebuffer endpoints: the application addresses both rectangles in
+    // surface units, but under the redirect the logical default framebuffer is
+    // physically render-sized. An unscaled rectangle overrun is not clipped by
+    // GLES -- the whole blit is rejected with GL_INVALID_OPERATION, the frame
+    // never lands in the redirect, and every upscale presents stale content.
+    // Each endpoint flagged as the logical default (0) is scaled by the same
+    // ratio the scissor rewrite uses; application-owned framebuffers keep their
+    // rectangles (their attachments are surface-sized). No-op while disabled or
+    // before the redirect physically exists.
+    void MapBlitRects(GLint& srcX0, GLint& srcY0, GLint& srcX1, GLint& srcY1,
+                      GLint& dstX0, GLint& dstY0, GLint& dstX1, GLint& dstY1,
+                      Bool readIsLogicalDefault, Bool drawIsLogicalDefault);
+
     // EASU + RCAS into the real framebuffer 0, driver state saved and restored
     // around the passes. Called from Present() right before the swap.
     void RunUpscalePasses();

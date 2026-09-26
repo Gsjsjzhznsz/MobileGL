@@ -335,6 +335,40 @@ namespace MobileGL::MG_Backend::DirectGLES::FSR1Impl {
         h = static_cast<Int>(h * scaleY);
     }
 
+    void MapBlitRects(GLint& srcX0, GLint& srcY0, GLint& srcX1, GLint& srcY1,
+                      GLint& dstX0, GLint& dstY0, GLint& dstX1, GLint& dstY1,
+                      Bool readIsLogicalDefault, Bool drawIsLogicalDefault) {
+        if (!IsEnabled() || !s_resourcesOk || s_renderFBO == 0) return;
+        if ((!readIsLogicalDefault && !drawIsLogicalDefault)) return;
+        if (s_sizes.renderW == s_sizes.surfaceW && s_sizes.renderH == s_sizes.surfaceH) return;
+        // Surface pixels -> render pixels, the same ratio the scissor rewrite
+        // uses (GLdouble: GLsizei products overflow at 4K-plus sizes).
+        const double scaleX = static_cast<double>(s_sizes.renderW) / s_sizes.surfaceW;
+        const double scaleY = static_cast<double>(s_sizes.renderH) / s_sizes.surfaceH;
+        if (readIsLogicalDefault) {
+            // The read endpoint resolves to the redirect too (BindFramebufferId
+            // redirects a logical 0 read bind the same way), so its rectangle is
+            // in surface units against a render-sized attachment.
+            srcX0 = static_cast<GLint>(srcX0 * scaleX);
+            srcY0 = static_cast<GLint>(srcY0 * scaleY);
+            srcX1 = static_cast<GLint>(srcX1 * scaleX);
+            srcY1 = static_cast<GLint>(srcY1 * scaleY);
+        }
+        if (drawIsLogicalDefault) {
+            dstX0 = static_cast<GLint>(dstX0 * scaleX);
+            dstY0 = static_cast<GLint>(dstY0 * scaleY);
+            dstX1 = static_cast<GLint>(dstX1 * scaleX);
+            dstY1 = static_cast<GLint>(dstY1 * scaleY);
+        }
+        static bool s_blitRewriteLogged = false;
+        if (!s_blitRewriteLogged) {
+            s_blitRewriteLogged = true;
+            MGLOG_I("fsr1 blit rewrite (src=%d dst=%d, scale %.3fx%.3f): src %d,%d %dx%d -> dst %d,%d %dx%d",
+                    readIsLogicalDefault ? 1 : 0, drawIsLogicalDefault ? 1 : 0, scaleX, scaleY, srcX0, srcY0,
+                    srcX1 - srcX0, srcY1 - srcY0, dstX0, dstY0, dstX1 - dstX0, dstY1 - dstY0);
+        }
+    }
+
     void RunUpscalePasses() {
         if (!IsEnabled()) return;
         if (!s_resourcesOk) CreateResources();
