@@ -7,6 +7,7 @@
 // End of Source File Header
 
 #include "DirectGLES.h"
+#include "FSR1.h"
 #include "EGL/egl.h"
 #include "MG_Util/Types.h"
 #include "Utils.h"
@@ -2046,6 +2047,23 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     backendViewport = IntVec4(0, 0, surfaceWidth, surfaceHeight);
                 }
             }
+            // mg-3backends FSR1: while the draw target is the redirected default
+            // framebuffer, the application's window-sized viewport is remapped onto
+            // the render-sized redirect (see FSR1.h). The diff below compares the
+            // REMAPPED value, so a render-size change re-pushes on its own.
+            Bool fsrDefaultDraw = false;
+            {
+                const auto& fsrDrawFbo =
+                    MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
+                fsrDefaultDraw =
+                    !fsrDrawFbo || fsrDrawFbo == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO;
+            }
+            if (fsrDefaultDraw) {
+                Int vx = backendViewport.x(), vy = backendViewport.y(), vw = backendViewport.z(),
+                    vh = backendViewport.w();
+                FSR1Impl::MapViewport(vx, vy, vw, vh, fsrDefaultDraw);
+                backendViewport = IntVec4(vx, vy, vw, vh);
+            }
             if (backendViewport != g_syncedBackendViewport) {
                 g_GLESFuncs.glViewport(backendViewport.x(), backendViewport.y(), backendViewport.z(),
                                        backendViewport.w());
@@ -2529,6 +2547,21 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     Int surfaceHeight = 0;
                     if (QueryCurrentSurfaceSize(surfaceWidth, surfaceHeight)) {
                         backendScissorBox = IntVec4(0, 0, surfaceWidth, surfaceHeight);
+                    }
+                }
+                // mg-3backends FSR1: scissor rectangles are framebuffer pixels the
+                // application computed against the surface, so on the redirected
+                // default framebuffer they scale into the render-sized target.
+                {
+                    const auto& fsrDrawFbo =
+                        MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
+                    const Bool fsrDefaultDraw = !fsrDrawFbo ||
+                        fsrDrawFbo == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO;
+                    if (fsrDefaultDraw) {
+                        Int sx = backendScissorBox.x(), sy = backendScissorBox.y(), sw = backendScissorBox.z(),
+                            sh = backendScissorBox.w();
+                        FSR1Impl::MapScissor(sx, sy, sw, sh, fsrDefaultDraw);
+                        backendScissorBox = IntVec4(sx, sy, sw, sh);
                     }
                 }
                 // Compared against what was actually PUSHED, not against the parameter field, so
@@ -10610,6 +10643,18 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 g_GLESFuncs.glDeleteSync(slot.sync);
             }
             slot = {g_GLESFuncs.glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0), g_syncContextGeneration, serial};
+        }
+
+        // mg-3backends FSR1: bring the frame up to surface resolution (EASU) and
+        // sharpen it into the real framebuffer 0 (RCAS) right before the swap. The
+        // surface size is latched here so a resize recreates the targets before the
+        // next frame renders into them.
+        if (FSR1Impl::IsEnabled()) {
+            Int fsrSurfaceW = 0, fsrSurfaceH = 0;
+            if (QueryCurrentSurfaceSize(fsrSurfaceW, fsrSurfaceH)) {
+                FSR1Impl::UpdateSurfaceSize(fsrSurfaceW, fsrSurfaceH);
+            }
+            FSR1Impl::RunUpscalePasses();
         }
 
         g_EGLFuncs.eglSwapBuffers(g_Display, g_Surface);

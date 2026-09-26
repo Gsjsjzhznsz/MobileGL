@@ -7,6 +7,7 @@
 // End of Source File Header
 
 #include "Managers.h"
+#include "FSR1.h"
 #include "Utils.h"
 #include "DirectGLES.h"
 #include "BackendObject_DirectGLES.h"
@@ -5057,6 +5058,17 @@ namespace MobileGL::MG_Backend::DirectGLES {
         } // namespace
 
         void BindFramebufferId(GLenum fbTarget, Uint id) {
+            // mg-3backends FSR1: the logical default framebuffer is redirected to an
+            // owned render FBO while FSR1 owns frame 0. The shadow stores PHYSICAL
+            // ids, so the redirect composes with the dedupe and with every
+            // save/restore that rides on this function; Present()'s passes re-park
+            // the driver on the physical equivalent of the shadow's logical state.
+            if (id == 0) {
+                const Uint fsrRedirect = FSR1Impl::RedirectedDefaultFBO();
+                if (fsrRedirect != 0) {
+                    id = fsrRedirect;
+                }
+            }
             const Bool bindsDraw = fbTarget == GL_DRAW_FRAMEBUFFER || fbTarget == GL_FRAMEBUFFER;
             const Bool bindsRead = fbTarget == GL_READ_FRAMEBUFFER || fbTarget == GL_FRAMEBUFFER;
             const SizeT drawIdx = SizeT(FramebufferTarget::Draw);

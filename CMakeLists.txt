@@ -362,6 +362,7 @@ set(SOURCE_FILES
     MobileGL/MG_Backend/DirectGLES/Utils.cpp
     MobileGL/MG_Backend/DirectGLES/Managers.cpp
     MobileGL/MG_Backend/DirectGLES/MultiDraw.cpp
+    MobileGL/MG_Backend/DirectGLES/FSR1.cpp
 
     MobileGL/MG_Backend/DirectVulkan/DirectVulkan.cpp
     MobileGL/MG_Backend/DirectVulkan/BackendObject_DirectVulkan.cpp

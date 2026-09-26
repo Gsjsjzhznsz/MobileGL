@@ -68,14 +68,28 @@ libmobileglues.so  ←── 统一入口（dispatcher，本仓库 dispatcher/�
     MobileGlues 核心原生读取；`MOBILEGL_FSR1` env 覆盖仍可用（env > config.json）。
 - 换后端后**下次启动游戏生效**（dispatcher 在启动器进程首次 GL/EGL 调用时定桩）。
 
-## FSR 路线图
+## FSR 路线图（2026-09 更新：内置 FSR1 已升级为 Arm ASR）
 
-1. ✅ GLES 端：MobileGlues 上游 FSR1（EASU+RCAS），UI 档位开关已接。
-2. OpenGL 4.0 端（DirectGLES）：把 FSR1 双 pass 接入 DirectGLES 呈现路径
-   （fb0 重定向 + swap 前放大锐化，复用 MobileGlues 的 FSR 着色器源）。
-3. Vulkan 直连端（DirectVulkan）：呈现层 FSR1（低分辨率渲染 + EASU/RCAS
+内核统一为 **Arm® Accuracy Super Resolution™**（Arm 对 AMD FidelityFX
+FSR 1.0.2 的移动优化版，MIT，
+github.com/arm/accuracy-super-resolution），三端同源：
+
+1. ✅ GLES 端（MobileGlues 后端）：`gl/FSR1/` 重写为 EASU + RCAS 双 pass，
+   常量用 vendored Arm CPU 头（`include/ffxm/`）逐位计算；textureGather 以
+   texelFetch 按 GLES 规范仿真（ESSL 300 可转换，旧 AMD 单 pass 在 ES 3.0
+   设备上从未成功转换过）；viewport/scissor 随重定向改写，预设有真实降分
+   辨率收益；UI 档位开关已接。
+2. ✅ OpenGL 4.0 端（DirectGLES）：`MG_Backend/DirectGLES/FSR1.cpp`，
+   同一双 pass 架构。ESSL 着色器预转换内嵌（后端零转换器依赖）；
+   `BindFramebufferId(0)` 重定向 + 呈现前 EASU/RCAS + shadow 物理值复位；
+   viewport/scissor 在渲染状态同步处改写。开关：`MOBILEGL_FSR1` env
+   （0=关 / 1..4=档位，与文档化的启动器侧覆盖一致）。
+3. ⏳ Vulkan 直连端（DirectVulkan）：呈现层 FSR1（低分辨率渲染 + EASU/RCAS
    compute 放大锐化后进 swapchain）。安卓无需 iOS 的 Metal 拦截方案，
-   直接在 Vulkan 侧实现。
+   直接在 Vulkan 侧实现。复用同一组 Arm 着色器源（GLSL 450 → SPIR-V）。
+
+已知取舍（两端共用）： fabulous 式 FBO0↔用户 FBO blit 路径在 FSR 重定向
+下只保证常规管线正确；上下文丢失恢复与 Vulkan 端接入见各自文档。
 
 ## 与上游的同步
 
