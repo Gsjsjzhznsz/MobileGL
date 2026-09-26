@@ -83,13 +83,21 @@ github.com/arm/accuracy-super-resolution），三端同源：
    同一双 pass 架构。ESSL 着色器预转换内嵌（后端零转换器依赖）；
    `BindFramebufferId(0)` 重定向 + 呈现前 EASU/RCAS + shadow 物理值复位；
    viewport/scissor 在渲染状态同步处改写。开关：`MOBILEGL_FSR1` env
-   （0=关 / 1..4=档位，与文档化的启动器侧覆盖一致）。
+   （0=关 / 1..4=档位，与文档化的启动器侧覆盖一致）；锐化：
+   `MOBILEGL_FSR1_SHARPNESS`（0-100，缺省 90 = 0.2 stops，与 GLES 端同映射）。
+   两者由 dispatcher 从 config.json 桥接（env 优先，overwrite=0），UI 开关
+   不需要 env 也能到达本端；dispatcher 同时把 config.json `backendType`
+   回填进 env，杜绝入口库与核心的后端选型分歧。
 3. ⏳ Vulkan 直连端（DirectVulkan）：呈现层 FSR1（低分辨率渲染 + EASU/RCAS
    compute 放大锐化后进 swapchain）。安卓无需 iOS 的 Metal 拦截方案，
    直接在 Vulkan 侧实现。复用同一组 Arm 着色器源（GLSL 450 → SPIR-V）。
 
 已知取舍（两端共用）： fabulous 式 FBO0↔用户 FBO blit 路径在 FSR 重定向
 下只保证常规管线正确；上下文丢失恢复与 Vulkan 端接入见各自文档。
+GLES 端 2026-09-26 补：应用发起、落在重定向上的 blit（逻辑 FBO0 为读或
+写端点）矩形按 surface→render 比例改写（与 viewport/scissor 同一设计），
+窗口尺寸的整帧传递不再越界被裁；InitFSRResources 不再在帧中裸绑 render
+FBO（此前一次帧内 tracked/driver 分歧可产生异常帧）。
 
 ## 与上游的同步
 

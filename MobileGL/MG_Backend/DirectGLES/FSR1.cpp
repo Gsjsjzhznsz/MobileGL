@@ -32,6 +32,12 @@ namespace MobileGL::MG_Backend::DirectGLES::FSR1Impl {
         // g_Display/g_Surface in DirectGLES.cpp are statics for the same reason).
         bool s_enabled = false;
         float s_scale = 1.5f;
+        // RCAS sharpness in stops. Default 0.2 reproduces the pre-slider
+        // hardcoded behavior; MOBILEGL_FSR1_SHARPNESS (0-100 percent,
+        // higher = sharper, bridged from config.json by the dispatcher)
+        // remaps it with the same formula the MobileGlues core uses:
+        // stops = (100 - percent) / 100 * 2.
+        float s_sharpnessStops = 0.2f;
         bool s_initTried = false;
         bool s_resourcesOk = false;
 
@@ -195,8 +201,9 @@ namespace MobileGL::MG_Backend::DirectGLES::FSR1Impl {
             g_GLESFuncs.glUseProgram(s_rcasProgram);
             g_GLESFuncs.glUniform1i(g_GLESFuncs.glGetUniformLocation(s_rcasProgram, "uInputTex"), 0);
             // FsrRcasCon: con.x = exp2(-sharpness) as float bits; the fp32 RCAS path
-            // reads only con.x. 0.2 stops.
-            const GLuint rcasCon[4] = {BitCastF32(std::exp2(-0.2f)), 0, 0, 0};
+            // reads only con.x. The stops come from MOBILEGL_FSR1_SHARPNESS (see
+            // IsEnabled); 0.2 stops = the 90% default.
+            const GLuint rcasCon[4] = {BitCastF32(std::exp2(-s_sharpnessStops)), 0, 0, 0};
             g_GLESFuncs.glUniform4uiv(s_rcasConLoc, 1, rcasCon);
             g_GLESFuncs.glUseProgram(0);
 
@@ -277,7 +284,15 @@ namespace MobileGL::MG_Backend::DirectGLES::FSR1Impl {
                 s_enabled = true;
                 constexpr float kScales[4] = {1.3f, 1.5f, 1.7f, 2.0f};
                 s_scale = kScales[env[0] - '1'];
-                MGLOG_I("FSR1 enabled via MOBILEGL_FSR1=%c (scale %.1f)", env[0], s_scale);
+                const char* sharpEnv = std::getenv("MOBILEGL_FSR1_SHARPNESS");
+                if (sharpEnv && *sharpEnv) {
+                    int percent = std::atoi(sharpEnv);
+                    if (percent < 0) percent = 0;
+                    if (percent > 100) percent = 100;
+                    s_sharpnessStops = (100.0f - static_cast<float>(percent)) / 100.0f * 2.0f;
+                }
+                MGLOG_I("FSR1 enabled via MOBILEGL_FSR1=%c (scale %.1f, sharpness %.2f stops)", env[0], s_scale,
+                        s_sharpnessStops);
             }
         }
         return s_enabled;

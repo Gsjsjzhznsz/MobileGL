@@ -98,52 +98,79 @@ static void *mg_try_dlopen(const char *lib) {
  * Path resolution mirrors MobileGlues-cpp/config/config.cpp check_path():
  * MG_DIR_PATH env override, else /sdcard/MG. Returns a pointer into a static
  * buffer; mg_dispatch_init runs at most once, so that is safe. */
-static const char *mg_backend_from_config(void) {
-    static char val[32];
-    const char *dir_env = getenv("MG_DIR_PATH");
-    char path[600], buf[16384];
+
+/* Tolerant scan for  "key" : <value>  in the MobileGlues config.json — no
+ * JSON parser in the dispatcher, and the cores' config parser must not be
+ * duplicated here either; the plugin UI is the only writer of these keys.
+ * Value form follows org.json: quoted strings and bare numbers both appear
+ * ("backendType": "DirectGLES", "fsr1Setting": 4). A bare number is copied
+ * verbatim; the caller decides how to parse it.
+ * Returns 1 and fills val on a hit, 0 when the file or the key is missing. */
+static int mg_config_scan(const char *key, char *val, size_t cap) {
+    static char buf[16384];
+    char path[600], keybuf[64];
     FILE *f;
     size_t n;
-    const char *key, *colon, *q1, *q2;
+    const char *needle, *keypos, *colon, *v;
 
     snprintf(path, sizeof(path), "%s/config.json",
-             (dir_env && *dir_env) ? dir_env : "/sdcard/MG");
+             (getenv("MG_DIR_PATH") && *getenv("MG_DIR_PATH")) ? getenv("MG_DIR_PATH") : "/sdcard/MG");
     f = fopen(path, "r");
     if (!f) {
-        return NULL;
+        return 0;
     }
     n = fread(buf, 1, sizeof(buf) - 1, f);
     fclose(f);
     buf[n] = '\0';
 
-    /* Tolerant scan for  "backendType" : "DirectVulkan" — no JSON parser in
-     * the dispatcher, and the cores' config parser must not be duplicated
-     * here either; the plugin UI is the only writer of this key. */
-    key = strstr(buf, "\"backendType\"");
-    if (!key) {
-        return NULL;
+    needle = keybuf;
+    snprintf(keybuf, sizeof(keybuf), "\"%s\"", key);
+    keypos = strstr(buf, needle);
+    if (!keypos) {
+        return 0;
     }
-    colon = strchr(key + sizeof("\"backendType\"") - 1, ':');
+    colon = strchr(keypos + strlen(needle), ':');
     if (!colon) {
+        return 0;
+    }
+    v = colon + 1;
+    while (*v == ' ' || *v == '\t') {
+        v++;
+    }
+    if (*v == '"') {
+        const char *q2 = strchr(v + 1, '"');
+        if (!q2 || (size_t)(q2 - v - 1) <= 0 || (size_t)(q2 - v - 1) >= cap) {
+            return 0;
+        }
+        memcpy(val, v + 1, q2 - v - 1);
+        val[q2 - v - 1] = '\0';
+        return 1;
+    }
+    /* Bare number token: take as many [0-9+-] as the JSON writer emitted. */
+    {
+        size_t m = 0;
+        while ((v[m] == '-' || v[m] == '+' || (v[m] >= '0' && v[m] <= '9')) && m < cap - 1) {
+            val[m] = v[m];
+            m++;
+        }
+        val[m] = '\0';
+        return m > 0;
+    }
+}
+
+static const char *mg_backend_from_config(void) {
+    static char val[32];
+    if (!mg_config_scan("backendType", val, sizeof(val))) {
         return NULL;
     }
-    q1 = strchr(colon + 1, '"');
-    if (!q1) {
-        return NULL;
-    }
-    q2 = strchr(q1 + 1, '"');
-    if (!q2 || q2 - q1 - 1 <= 0 || q2 - q1 - 1 >= (ptrdiff_t)sizeof(val)) {
-        return NULL;
-    }
-    memcpy(val, q1 + 1, q2 - q1 - 1);
-    val[q2 - q1 - 1] = '\0';
-    MG_LOGI("backend from %s: \"%s\"", path, val);
+    MG_LOGI("backend from config.json: \"%s\"", val);
     return val;
 }
 
 void mg_dispatch_init(void) {
     const char *be, *force;
     const char *lib;
+    char fsrVal[32];
 
     if (g_core) {
         return;
@@ -152,9 +179,38 @@ void mg_dispatch_init(void) {
     be = getenv("MOBILEGL_BACKEND_TYPE");
     if (!be || !*be) {
         be = mg_backend_from_config();
+        /* The core (libMobileGL.so) picks DirectGLES/DirectVulkan from the same
+         * env the dispatcher defaults to — pin the config.json answer into the
+         * environment (never overwriting a real launcher env) so the entry lib
+         * and the core can never disagree about which backend is active. */
+        if (be && *be) {
+            setenv("MOBILEGL_BACKEND_TYPE", be, 0);
+        }
     }
     if (!be || !*be) {
         be = "DirectVulkan"; /* Air 6.0 default: Vulkan direct */
+    }
+
+    /* FSR1 settings ride the same config.json -> env bridge. The DirectGLES
+     * core reads MOBILEGL_FSR1 / MOBILEGL_FSR1_SHARPNESS (env-only contract);
+     * overwrite=0 keeps a real launcher env authoritative. fsr1Setting 0 is
+     * "Disabled" — absent env means exactly that, so nothing is set. */
+    if (mg_config_scan("fsr1Setting", fsrVal, sizeof(fsrVal))) {
+        long fsr = strtol(fsrVal, NULL, 10);
+        if (fsr >= 1 && fsr <= 4) {
+            char digit[2] = {(char)('0' + fsr), '\0'};
+            setenv("MOBILEGL_FSR1", digit, 0);
+            MG_LOGI("fsr1 from config.json: preset %ld", fsr);
+        }
+    }
+    if (mg_config_scan("fsr1Sharpness", fsrVal, sizeof(fsrVal))) {
+        long sharp = strtol(fsrVal, NULL, 10);
+        if (sharp >= 0 && sharp <= 100) {
+            char sharpStr[8];
+            snprintf(sharpStr, sizeof(sharpStr), "%ld", sharp);
+            setenv("MOBILEGL_FSR1_SHARPNESS", sharpStr, 0);
+            MG_LOGI("fsr1 from config.json: sharpness %ld", sharp);
+        }
     }
     force = getenv("MOBILEGL_DISPATCHER_CORE"); /* debug override: full lib name */
 
