@@ -212,6 +212,15 @@ void mg_dispatch_init(void) {
             MG_LOGI("fsr1 from config.json: sharpness %ld", sharp);
         }
     }
+    /* Say it out loud when the combination cannot work: only the GLES family
+     * (DirectGLES core, vendored MobileGlues core) implements FSR1 today; the
+     * DirectVulkan backend ignores the env entirely, and a user switching FSR1
+     * on while riding the default Vulkan backend reads exactly "no effect".
+     * This runs once per process, so the log stays quiet otherwise. */
+    if (getenv("MOBILEGL_FSR1") && !strcmp(be, "DirectVulkan")) {
+        MG_LOGW("fsr1 requested but backend \"DirectVulkan\" has no FSR support yet (see roadmap) -- "
+                "switch the backend picker to DirectGLES or MobileGlues for FSR1");
+    }
     force = getenv("MOBILEGL_DISPATCHER_CORE"); /* debug override: full lib name */
 
     if (force && *force) {

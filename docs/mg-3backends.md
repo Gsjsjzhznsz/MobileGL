@@ -82,15 +82,22 @@ github.com/arm/accuracy-super-resolution），三端同源：
 2. ✅ OpenGL 4.0 端（DirectGLES）：`MG_Backend/DirectGLES/FSR1.cpp`，
    同一双 pass 架构。ESSL 着色器预转换内嵌（后端零转换器依赖）；
    `BindFramebufferId(0)` 重定向 + 呈现前 EASU/RCAS + shadow 物理值复位；
-   viewport/scissor 在渲染状态同步处改写。开关：`MOBILEGL_FSR1` env
-   （0=关 / 1..4=档位，与文档化的启动器侧覆盖一致）；锐化：
-   `MOBILEGL_FSR1_SHARPNESS`（0-100，缺省 90 = 0.2 stops，与 GLES 端同映射）。
-   两者由 dispatcher 从 config.json 桥接（env 优先，overwrite=0），UI 开关
-   不需要 env 也能到达本端；dispatcher 同时把 config.json `backendType`
-   回填进 env，杜绝入口库与核心的后端选型分歧。
+   viewport/scissor 在渲染状态同步处改写；glBlitFramebuffer 以逻辑默认帧
+   缓冲为端点的矩形按同一比例改写（GLES 不裁剪越界 blit——整帧以
+   GL_INVALID_OPERATION 拒绝，上采样只能拿到陈旧内容）。开关：
+   `MOBILEGL_FSR1` env（0=关 / 1..4=档位，与文档化的启动器侧覆盖一致）；
+   锐化：`MOBILEGL_FSR1_SHARPNESS`（0-100，缺省 90 = 0.2 stops，与 GLES 端
+   同映射）。两者由 dispatcher 从 config.json 桥接（env 优先，
+   overwrite=0），UI 开关不需要 env 也能到达本端；dispatcher 同时把
+   config.json `backendType` 回填进 env，杜绝入口库与核心的后端选型分歧，
+   并在「fsr1 已请求 + 后端 DirectVulkan」组合下打一次性 WARN（该组合
+   无法生效，见第 3 条）。
 3. ⏳ Vulkan 直连端（DirectVulkan）：呈现层 FSR1（低分辨率渲染 + EASU/RCAS
    compute 放大锐化后进 swapchain）。安卓无需 iOS 的 Metal 拦截方案，
    直接在 Vulkan 侧实现。复用同一组 Arm 着色器源（GLSL 450 → SPIR-V）。
+   现状：默认帧缓冲直接渲染进 swapchain 图像（VkRenderPassManager 的
+   SwapchainColor 目标），无现成 offscreen 中转可挂；插件设置页与
+   dispatcher 日志均已明确标注该后端暂不支持 FSR1。
 
 已知取舍（两端共用）： fabulous 式 FBO0↔用户 FBO blit 路径在 FSR 重定向
 下只保证常规管线正确；上下文丢失恢复与 Vulkan 端接入见各自文档。
