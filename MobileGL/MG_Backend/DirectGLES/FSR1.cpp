@@ -52,6 +52,15 @@ namespace MobileGL::MG_Backend::DirectGLES::FSR1Impl {
         FSRSizes s_pending;         // surface size seen by the last Present
         bool s_surfaceDirty = true; // apply pending at the next pass
 
+        // The application's own window units on the redirect, captured from its
+        // full-bleed viewports and present blits. A launcher may size the EGL
+        // surface differently from the game's window (Minecraft: window
+        // 2360x1080, surface 1920x1080), and the scissor/blit rewrites below
+        // scale game-unit rectangles into render pixels -- their denominator
+        // has to be the app's units, not the surface size. 0 = not captured
+        // yet; those rewrites then fall back to the surface sizes.
+        GLsizei s_viewW = 0, s_viewH = 0;
+
         GLuint s_cachedEasuCon[4][4];
         GLsizei s_cachedInputW = 0, s_cachedInputH = 0, s_cachedOutputW = 0, s_cachedOutputH = 0;
 
@@ -218,6 +227,11 @@ namespace MobileGL::MG_Backend::DirectGLES::FSR1Impl {
         void ApplySurfaceSize() {
             if (!s_surfaceDirty) return;
             s_surfaceDirty = false;
+            // The window-units capture is tied to the old surface: after a
+            // rotation it must be re-learned from the app's next full-bleed
+            // viewport rather than kept stale.
+            s_viewW = 0;
+            s_viewH = 0;
             s_sizes.surfaceW = s_pending.surfaceW;
             s_sizes.surfaceH = s_pending.surfaceH;
             // CalculateRenderResolution: render = surface / preset scale, even-rounded.
@@ -314,21 +328,40 @@ namespace MobileGL::MG_Backend::DirectGLES::FSR1Impl {
 
     void MapViewport(Int& x, Int& y, Int& w, Int& h, Bool onDefaultDraw) {
         if (!IsEnabled() || !s_resourcesOk || !onDefaultDraw) return;
-        // The application thinks its window is the surface; the pixels land in the
-        // render-sized redirect. Remap the full viewport so the frame covers it.
-        x = 0;
-        y = 0;
-        w = s_sizes.renderW;
-        h = s_sizes.renderH;
+        // The viewport the app issues on the redirect is in its own window
+        // units. A full-bleed one is the app's window size -- remember the
+        // largest seen (the scissor/blit rewrites need it as denominator);
+        // every rectangle scales by the same ratio, so partial viewports keep
+        // their place in the frame. The app's viewport says nothing about the
+        // EGL surface: the surface query at the swap is the only size
+        // authority, and inflating the pending target from a viewport here
+        // would fight it every frame (a game window permanently larger than
+        // the surface reads as "the surface grew", then the query pulls it
+        // back -- per-frame target churn and a strobing screen).
+        if (x == 0 && y == 0 && (w > s_viewW || h > s_viewH)) {
+            s_viewW = w;
+            s_viewH = h;
+        }
+        const double unitW = s_viewW ? static_cast<double>(s_viewW) : static_cast<double>(s_sizes.surfaceW);
+        const double unitH = s_viewH ? static_cast<double>(s_viewH) : static_cast<double>(s_sizes.surfaceH);
+        const double scaleX = static_cast<double>(s_sizes.renderW) / unitW;
+        const double scaleY = static_cast<double>(s_sizes.renderH) / unitH;
+        x = static_cast<Int>(x * scaleX);
+        y = static_cast<Int>(y * scaleY);
+        w = static_cast<Int>(w * scaleX);
+        h = static_cast<Int>(h * scaleY);
     }
 
     void MapScissor(Int& x, Int& y, Int& w, Int& h, Bool onDefaultDraw) {
         if (!IsEnabled() || !s_resourcesOk || !onDefaultDraw) return;
         if (s_sizes.renderW == s_sizes.surfaceW && s_sizes.renderH == s_sizes.surfaceH) return;
-        // Surface pixels -> render pixels (GLdouble: GLsizei products overflow at
-        // 4K-plus sizes).
-        const double scaleX = static_cast<double>(s_sizes.renderW) / s_sizes.surfaceW;
-        const double scaleY = static_cast<double>(s_sizes.renderH) / s_sizes.surfaceH;
+        // Game-unit rectangles scale by the app's window size when that is
+        // known, and by the surface size otherwise (GLdouble: GLsizei products
+        // overflow at 4K-plus sizes).
+        const double unitW = s_viewW ? static_cast<double>(s_viewW) : static_cast<double>(s_sizes.surfaceW);
+        const double unitH = s_viewH ? static_cast<double>(s_viewH) : static_cast<double>(s_sizes.surfaceH);
+        const double scaleX = static_cast<double>(s_sizes.renderW) / unitW;
+        const double scaleY = static_cast<double>(s_sizes.renderH) / unitH;
         x = static_cast<Int>(x * scaleX);
         y = static_cast<Int>(y * scaleY);
         w = static_cast<Int>(w * scaleX);
@@ -341,14 +374,25 @@ namespace MobileGL::MG_Backend::DirectGLES::FSR1Impl {
         if (!IsEnabled() || !s_resourcesOk || s_renderFBO == 0) return;
         if ((!readIsLogicalDefault && !drawIsLogicalDefault)) return;
         if (s_sizes.renderW == s_sizes.surfaceW && s_sizes.renderH == s_sizes.surfaceH) return;
-        // Surface pixels -> render pixels, the same ratio the scissor rewrite
-        // uses (GLdouble: GLsizei products overflow at 4K-plus sizes).
-        const double scaleX = static_cast<double>(s_sizes.renderW) / s_sizes.surfaceW;
-        const double scaleY = static_cast<double>(s_sizes.renderH) / s_sizes.surfaceH;
+        // A full-bleed dst on the redirect is the app presenting its whole
+        // window: capture the window size in the app's own units, grown only
+        // so a partial present cannot shrink it.
+        if (drawIsLogicalDefault && dstX0 == 0 && dstY0 == 0) {
+            if (dstX1 > s_viewW) s_viewW = dstX1;
+            if (dstY1 > s_viewH) s_viewH = dstY1;
+        }
+        // Game-unit rectangles scale by the app's window size when that is
+        // known (it usually is: the app opens every frame with a full-bleed
+        // viewport on the redirect), and by the surface size otherwise
+        // (GLdouble: GLsizei products overflow at 4K-plus sizes).
+        const double unitW = s_viewW ? static_cast<double>(s_viewW) : static_cast<double>(s_sizes.surfaceW);
+        const double unitH = s_viewH ? static_cast<double>(s_viewH) : static_cast<double>(s_sizes.surfaceH);
+        const double scaleX = static_cast<double>(s_sizes.renderW) / unitW;
+        const double scaleY = static_cast<double>(s_sizes.renderH) / unitH;
         if (readIsLogicalDefault) {
             // The read endpoint resolves to the redirect too (BindFramebufferId
             // redirects a logical 0 read bind the same way), so its rectangle is
-            // in surface units against a render-sized attachment.
+            // in the app's units against a render-sized attachment.
             srcX0 = static_cast<GLint>(srcX0 * scaleX);
             srcY0 = static_cast<GLint>(srcY0 * scaleY);
             srcX1 = static_cast<GLint>(srcX1 * scaleX);
