@@ -364,6 +364,46 @@ namespace MobileGL::MG_Backend::DirectGLES::FSR1Impl {
         if (s_pendingStreak >= 2) s_surfaceDirty = true;
     }
 
+    // Air Task 82 port (Amethyst fork worklog: the "shrunk into the bottom-left
+    // corner" root cause, later the strobe/split family). The units latch below
+    // only ever grows, so a full-bleed-looking candidate larger than the window
+    // in one axis poisons it for good: MC 26.x runs intermediate passes whose
+    // viewport is a square (2048x2048 atlas), and once such a candidate won,
+    // every rewrite used a corrupt denominator and the upscale presented
+    // squashed / split / strobing frames. A latch candidate has to be
+    // window-shaped: it carries the surface's aspect ratio (the window scales
+    // the surface uniformly; atlas and shadow passes are square, post targets
+    // are window-shaped and no larger; 3% absorbs preset-scale rounding), or --
+    // once units are known -- the latch's own aspect (a genuine resize keeps
+    // the window shape; a rotation re-shapes the surface first, so the new
+    // window re-matches the surface rule). Gates both the MapViewport latch and
+    // the MapBlitRects latch.
+    bool WindowUnitsCandidate(Int w, Int h) {
+        if (w <= 0 || h <= 0) return false;
+        const double candidateAspect = static_cast<double>(w) / static_cast<double>(h);
+        auto aspectDrift = [](double a, double b) { return (a > b ? a - b : b - a) / b; };
+        if (s_sizes.surfaceW > 0 && s_sizes.surfaceH > 0 &&
+            aspectDrift(candidateAspect, static_cast<double>(s_sizes.surfaceW) /
+                                               static_cast<double>(s_sizes.surfaceH)) <= 0.03) {
+            return true;
+        }
+        if (s_viewW > 0 && s_viewH > 0 &&
+            aspectDrift(candidateAspect, static_cast<double>(s_viewW) / static_cast<double>(s_viewH)) <= 0.03) {
+            return true;
+        }
+        // Once per distinct rejected size: the offending pass fires every frame,
+        // and the first refusal is the whole story.
+        static Int s_rejectedW = -1, s_rejectedH = -1;
+        if (s_rejectedW != w || s_rejectedH != h) {
+            s_rejectedW = w;
+            s_rejectedH = h;
+            MGLOG_W("FSR1 window-units latch rejected (air Task 82): %dx%d is not a window viewport "
+                    "(surface %dx%d, latch %dx%d) -- intermediate render pass kept out of the upscale geometry",
+                    w, h, s_sizes.surfaceW, s_sizes.surfaceH, s_viewW, s_viewH);
+        }
+        return false;
+    }
+
     void MapViewport(Int& x, Int& y, Int& w, Int& h, Bool onDefaultDraw) {
         if (!IsEnabled() || !s_resourcesOk || !onDefaultDraw) return;
         // The viewport the app issues on the redirect is in its own window
@@ -376,7 +416,11 @@ namespace MobileGL::MG_Backend::DirectGLES::FSR1Impl {
         // would fight it every frame (a game window permanently larger than
         // the surface reads as "the surface grew", then the query pulls it
         // back -- per-frame target churn and a strobing screen).
-        if (x == 0 && y == 0 && (w > s_viewW || h > s_viewH)) {
+        if (x == 0 && y == 0 && (w > s_viewW || h > s_viewH) &&
+            // Air Task 82: growth alone is not enough -- a square atlas
+            // viewport grows the height past the window and poisons every
+            // rewrite from that frame on. Window-shaped candidates only.
+            WindowUnitsCandidate(w, h)) {
             s_viewW = w;
             s_viewH = h;
         }
@@ -415,7 +459,11 @@ namespace MobileGL::MG_Backend::DirectGLES::FSR1Impl {
         // A full-bleed dst on the redirect is the app presenting its whole
         // window: capture the window size in the app's own units, grown only
         // so a partial present cannot shrink it.
-        if (drawIsLogicalDefault && dstX0 == 0 && dstY0 == 0) {
+        // Air Task 82: growth alone is not enough -- a blit whose dst is an
+        // intermediate pass sized in its own units (square atlas, post chain)
+        // would poison the latch exactly like an oversized viewport; the same
+        // shape filter gates both sites.
+        if (drawIsLogicalDefault && dstX0 == 0 && dstY0 == 0 && WindowUnitsCandidate(dstX1, dstY1)) {
             if (dstX1 > s_viewW) s_viewW = dstX1;
             if (dstY1 > s_viewH) s_viewH = dstY1;
         }
