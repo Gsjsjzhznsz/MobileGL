@@ -105,6 +105,14 @@ GLES 端 2026-09-26 补：应用发起、落在重定向上的 blit（逻辑 FBO
 写端点）矩形按 surface→render 比例改写（与 viewport/scissor 同一设计），
 窗口尺寸的整帧传递不再越界被裁；InitFSRResources 不再在帧中裸绑 render
 FBO（此前一次帧内 tracked/driver 分歧可产生异常帧）。
+GLES 端 2026-09-27 补（两端同步）：surface 尺寸切换防抖——同一查询答案
+连续两次 Present/swap 才重建目标（设备日志 run 26 显示单会话内 1280x720
+与 2284x1080 两套尺寸并存，查询答案翻转时逐帧 Delete/Create 即为闪屏源），
+翻转永不达阈值即冻结在当前尺寸；重建计数遥测（前 6 次 + 每 64 次）进
+release 日志，直接暴露逐帧重建签名；MobileGlues 端 InitFSRResources 日志
+追加 init 序号与上下文指针，双上下文交替呈现可在日志中一票定性；
+dispatcher 对 config.json 打开失败补一次性 WARN（此前静默降级，设置
+「无效」无任何痕迹）。
 
 ## 与上游的同步
 

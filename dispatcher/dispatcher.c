@@ -32,6 +32,7 @@
 #include "dispatcher.h"
 
 #include <dlfcn.h>
+#include <errno.h>
 #include <libgen.h>
 #include <string.h>
 #include <stdlib.h>
@@ -117,6 +118,15 @@ static int mg_config_scan(const char *key, char *val, size_t cap) {
              (getenv("MG_DIR_PATH") && *getenv("MG_DIR_PATH")) ? getenv("MG_DIR_PATH") : "/sdcard/MG");
     f = fopen(path, "r");
     if (!f) {
+        /* Silent here meant silent everywhere: every consumer of this scan
+         * (backendType routing, the fsr1 bridge) degrades to defaults with no
+         * trace -- a renderer pinned to a config the game process cannot read
+         * reports as exactly "the setting does nothing". Say it once. */
+        static int missing_logged = 0;
+        if (!missing_logged) {
+            missing_logged = 1;
+            MG_LOGW("config.json not readable at %s -- backend/fsr1 keys unavailable (%s)", path, strerror(errno));
+        }
         return 0;
     }
     n = fread(buf, 1, sizeof(buf) - 1, f);

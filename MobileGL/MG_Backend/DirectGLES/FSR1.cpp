@@ -51,6 +51,13 @@ namespace MobileGL::MG_Backend::DirectGLES::FSR1Impl {
         FSRSizes s_sizes;           // applied sizes
         FSRSizes s_pending;         // surface size seen by the last Present
         bool s_surfaceDirty = true; // apply pending at the next pass
+        // Consecutive Presents that queried the pending size. The transition
+        // applies on the second: a size handed out once is a surface
+        // mid-rebuild or one answer of a flip-flop, not a resolution change
+        // -- per-frame DeleteTargets/CreateTargets is the strobe this gate
+        // exists to prevent (the MobileGlues core needed the same debounce
+        // once its device log showed two size regimes alive in one session).
+        int s_pendingStreak = 0;
 
         // The application's own window units on the redirect, captured from its
         // full-bleed viewports and present blits. A launcher may size the EGL
@@ -240,6 +247,15 @@ namespace MobileGL::MG_Backend::DirectGLES::FSR1Impl {
             DeleteTargets();
             CreateTargets();
             RefreshConstants();
+            // Churn telemetry: every hit is a real size transition. A handful
+            // per session is a rotation or a surface rebuild; a counter racing
+            // through here is per-frame recreation -- the strobe signature.
+            static int s_recreateCount = 0;
+            ++s_recreateCount;
+            if (s_recreateCount <= 6 || s_recreateCount % 64 == 0) {
+                MGLOG_W("FSR1 targets recreated #%d: render %dx%d -> surface %dx%d", s_recreateCount,
+                        s_sizes.renderW, s_sizes.renderH, s_sizes.surfaceW, s_sizes.surfaceH);
+            }
         }
 
         // Driver-level save/restore around the passes. Every field is re-pushed
@@ -320,10 +336,32 @@ namespace MobileGL::MG_Backend::DirectGLES::FSR1Impl {
 
     void UpdateSurfaceSize(Int width, Int height) {
         if (!IsEnabled() || width <= 0 || height <= 0) return;
-        if (width == s_pending.surfaceW && height == s_pending.surfaceH && !s_surfaceDirty) return;
-        s_pending.surfaceW = static_cast<GLsizei>(width);
-        s_pending.surfaceH = static_cast<GLsizei>(height);
-        s_surfaceDirty = true;
+        // Before resources exist, latch the very first query straight into the
+        // pending slot: CreateResources seeds a 1280x720 dummy, and the first
+        // ApplySurfaceSize (which runs right after it, same Present) should
+        // land on the real surface rather than one dummy frame late.
+        if (!s_resourcesOk) {
+            s_pending.surfaceW = static_cast<GLsizei>(width);
+            s_pending.surfaceH = static_cast<GLsizei>(height);
+            s_surfaceDirty = true;
+            return;
+        }
+        if (width == s_sizes.surfaceW && height == s_sizes.surfaceH) {
+            s_pendingStreak = 0;
+            return;
+        }
+        // Debounced: apply a new size only when the query repeats it on the
+        // next Present too. A flip-flopping query never reaches two and the
+        // targets freeze at their current size; a real resize repeats by
+        // definition and lands one present later than before.
+        if (width == s_pending.surfaceW && height == s_pending.surfaceH) {
+            ++s_pendingStreak;
+        } else {
+            s_pending.surfaceW = static_cast<GLsizei>(width);
+            s_pending.surfaceH = static_cast<GLsizei>(height);
+            s_pendingStreak = 1;
+        }
+        if (s_pendingStreak >= 2) s_surfaceDirty = true;
     }
 
     void MapViewport(Int& x, Int& y, Int& w, Int& h, Bool onDefaultDraw) {
