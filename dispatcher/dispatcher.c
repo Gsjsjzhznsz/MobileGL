@@ -41,9 +41,18 @@
 
 #ifdef __ANDROID__
 #include <android/log.h>
-#define MG_LOGI(...) __android_log_print(ANDROID_LOG_INFO, "mg-dispatch", __VA_ARGS__)
-#define MG_LOGW(...) __android_log_print(ANDROID_LOG_WARN, "mg-dispatch", __VA_ARGS__)
-#define MG_LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "mg-dispatch", __VA_ARGS__)
+/* Two sinks, deliberately. __android_log_print reaches logcat only; the
+ * launchers' game logs (latest_game.log and friends) are fed by the
+ * redirected stdio pipe, which never sees logcat. Every diagnostic this file
+ * prints -- config-read telemetry, the fsr1 bridge, the DirectVulkan+FSR1
+ * warning -- was invisible in exactly the log a user reports from, so each
+ * line now rides both channels. */
+#define MG_LOGI(...) do { __android_log_print(ANDROID_LOG_INFO, "mg-dispatch", __VA_ARGS__); \
+                          fprintf(stderr, "[mg-dispatch] " __VA_ARGS__); fputc('\n', stderr); } while (0)
+#define MG_LOGW(...) do { __android_log_print(ANDROID_LOG_WARN, "mg-dispatch", __VA_ARGS__); \
+                          fprintf(stderr, "[mg-dispatch][W] " __VA_ARGS__); fputc('\n', stderr); } while (0)
+#define MG_LOGE(...) do { __android_log_print(ANDROID_LOG_ERROR, "mg-dispatch", __VA_ARGS__); \
+                          fprintf(stderr, "[mg-dispatch][E] " __VA_ARGS__); fputc('\n', stderr); } while (0)
 #else
 #include <stdio.h>
 #define MG_LOGI(...) do { fprintf(stderr, "[mg-dispatch] " __VA_ARGS__); fputc('\n', stderr); } while (0)
